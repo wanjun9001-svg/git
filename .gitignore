@@ -24,7 +24,7 @@ wheels/
 venv/
 env/
 ENV/
-.venv
+.venv/
 
 # IDE
 .vscode/
@@ -40,4 +40,4 @@ Thumbs.db
 # Data files
 *.csv
 *.xlsx
-!项目1-汽车支腿反力/支腿反力验算.XLSX
+!项目1-汽车支腿反力/data/支腿反力验算.XLSX
