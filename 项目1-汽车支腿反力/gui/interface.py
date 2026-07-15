@@ -52,6 +52,16 @@ _ensure_project_root_on_path()
 from calculation.crane import calculate_report
 
 
+PRIMARY_BG = "#eef3f7"
+PANEL_BG = "#ffffff"
+TITLE_BG = "#1f4e79"
+TITLE_FG = "#ffffff"
+ACCENT_BG = "#2f75b5"
+ACCENT_ACTIVE_BG = "#1f5d96"
+BORDER_COLOR = "#9fb3c8"
+TEXT_MUTED = "#5b6b7a"
+
+
 INPUT_FIELDS = [
     ("G3", "汽车吊吊臂自重 G3", "t"),
     ("E", "吊臂重心至回转中心 E", "m"),
@@ -107,6 +117,7 @@ class App:
         self.root.title("汽车吊支腿反力自动生成计算书")
         self.root.geometry("1400x860")
         self.root.minsize(1180, 720)
+        self.root.configure(bg=PRIMARY_BG)
         self.status_var = tk.StringVar(self.root, value="请先输入参数，然后点击“重新计算”。")
 
         self._configure_style()
@@ -121,10 +132,33 @@ class App:
             style.theme_use("clam")
         except tk.TclError:
             pass
-        style.configure("Header.TLabel", font=("Microsoft YaHei UI", 16, "bold"))
-        style.configure("Section.TLabelframe.Label", font=("Microsoft YaHei UI", 10, "bold"))
-        style.configure("Result.Treeview", rowheight=26, font=("Consolas", 10))
-        style.configure("Result.Treeview.Heading", font=("Microsoft YaHei UI", 10, "bold"))
+        style.configure("Root.TFrame", background=PRIMARY_BG)
+        style.configure("Header.TLabel", background=PRIMARY_BG, foreground=TITLE_BG, font=("Microsoft YaHei UI", 17, "bold"))
+        style.configure("Muted.TLabel", background=PRIMARY_BG, foreground=TEXT_MUTED, font=("Microsoft YaHei UI", 9))
+        style.configure("Status.TLabel", background=PRIMARY_BG, foreground=TITLE_BG, font=("Microsoft YaHei UI", 9, "bold"))
+        style.configure(
+            "Toolbar.TButton",
+            font=("Microsoft YaHei UI", 10, "bold"),
+            padding=(12, 7),
+            background=ACCENT_BG,
+            foreground=TITLE_FG,
+            bordercolor="#1d4a73",
+        )
+        style.map(
+            "Toolbar.TButton",
+            background=[("active", ACCENT_ACTIVE_BG), ("pressed", TITLE_BG)],
+            foreground=[("disabled", "#d6e0ea"), ("!disabled", TITLE_FG)],
+        )
+        style.configure("Result.Treeview", rowheight=30, font=("Consolas", 10), background=PANEL_BG, fieldbackground=PANEL_BG)
+        style.configure(
+            "Result.Treeview.Heading",
+            font=("Microsoft YaHei UI", 10, "bold"),
+            background="#d9e2ec",
+            foreground="#243746",
+            relief="flat",
+        )
+        style.map("Result.Treeview.Heading", background=[("active", "#c7d3df")])
+        style.configure("Panel.Vertical.TScrollbar", background="#d9e2ec", troughcolor="#f5f7fa", arrowcolor=TITLE_BG)
 
     def _build_menu(self) -> None:
         menu = tk.Menu(self.root)
@@ -142,47 +176,78 @@ class App:
         self.root.config(menu=menu)
 
     def _build_layout(self) -> None:
-        main = ttk.Frame(self.root, padding=10)
+        main = ttk.Frame(self.root, padding=10, style="Root.TFrame")
         main.pack(fill=tk.BOTH, expand=True)
         main.columnconfigure(0, weight=1)
         main.rowconfigure(2, weight=1)
 
-        ttk.Label(main, text="汽车吊支腿反力计算", style="Header.TLabel").grid(
-            row=0, column=0, sticky="w", pady=(0, 8)
-        )
+        header = ttk.Frame(main, style="Root.TFrame")
+        header.grid(row=0, column=0, sticky="ew", pady=(0, 8))
+        header.columnconfigure(0, weight=1)
+        ttk.Label(header, text="汽车吊支腿反力计算", style="Header.TLabel").grid(row=0, column=0, sticky="w")
+        ttk.Label(
+            header,
+            text="输入参数、查看结果、复核计算步骤并导出 Word 计算书",
+            style="Muted.TLabel",
+        ).grid(row=1, column=0, sticky="w", pady=(2, 0))
 
-        toolbar = ttk.Frame(main)
+        toolbar = ttk.Frame(main, style="Root.TFrame")
         toolbar.grid(row=1, column=0, sticky="ew", pady=(0, 10))
         toolbar.columnconfigure(4, weight=1)
 
-        ttk.Button(toolbar, text="重新计算", command=self.calculate).grid(row=0, column=0, padx=(0, 8))
-        ttk.Button(toolbar, text="导出 Word 计算书", command=self.export_word).grid(
+        ttk.Button(toolbar, text="重新计算", command=self.calculate, style="Toolbar.TButton").grid(
+            row=0, column=0, padx=(0, 8)
+        )
+        ttk.Button(toolbar, text="导出 Word 计算书", command=self.export_word, style="Toolbar.TButton").grid(
             row=0, column=1, padx=(0, 8)
         )
-        ttk.Button(toolbar, text="恢复默认", command=self.reset_defaults).grid(row=0, column=2, padx=(0, 8))
-        ttk.Button(toolbar, text="清空输入", command=self.clear_inputs).grid(row=0, column=3, padx=(0, 8))
-        ttk.Label(toolbar, textvariable=self.status_var, foreground="#1f4e79").grid(
+        ttk.Button(toolbar, text="恢复默认", command=self.reset_defaults, style="Toolbar.TButton").grid(
+            row=0, column=2, padx=(0, 8)
+        )
+        ttk.Button(toolbar, text="清空输入", command=self.clear_inputs, style="Toolbar.TButton").grid(
+            row=0, column=3, padx=(0, 8)
+        )
+        ttk.Label(toolbar, textvariable=self.status_var, style="Status.TLabel").grid(
             row=0, column=4, sticky="e"
         )
 
         panes = ttk.Panedwindow(main, orient=tk.HORIZONTAL)
         panes.grid(row=2, column=0, sticky="nsew")
 
-        input_frame = ttk.Labelframe(main, text="输入参数", style="Section.TLabelframe")
-        result_frame = ttk.Labelframe(main, text="计算结果", style="Section.TLabelframe")
-        steps_frame = ttk.Labelframe(main, text="计算步骤（公式 / 代入 / 结果）", style="Section.TLabelframe")
-        panes.add(input_frame, weight=3)
-        panes.add(result_frame, weight=4)
-        panes.add(steps_frame, weight=5)
+        input_panel = self._create_panel(panes, "输入参数")
+        result_panel = self._create_panel(panes, "计算结果")
+        steps_panel = self._create_panel(panes, "计算步骤（公式 / 代入 / 结果）")
+        panes.add(input_panel, weight=3)
+        panes.add(result_panel, weight=4)
+        panes.add(steps_panel, weight=5)
 
-        self._build_input_panel(input_frame)
-        self._build_result_panel(result_frame)
-        self._build_steps_panel(steps_frame)
+        self._build_input_panel(input_panel.body)
+        self._build_result_panel(result_panel.body)
+        self._build_steps_panel(steps_panel.body)
 
-    def _build_input_panel(self, parent: ttk.Labelframe) -> None:
-        canvas = tk.Canvas(parent, highlightthickness=0)
-        scrollbar = ttk.Scrollbar(parent, orient=tk.VERTICAL, command=canvas.yview)
-        content = ttk.Frame(canvas, padding=8)
+    def _create_panel(self, parent: ttk.Panedwindow, title: str) -> tk.Frame:
+        outer = tk.Frame(parent, bg=BORDER_COLOR, bd=0, highlightthickness=0)
+        title_bar = tk.Frame(outer, bg=TITLE_BG, height=40)
+        title_bar.pack(fill=tk.X)
+        title_bar.pack_propagate(False)
+        tk.Label(
+            title_bar,
+            text=title,
+            bg=TITLE_BG,
+            fg=TITLE_FG,
+            font=("Microsoft YaHei UI", 11, "bold"),
+            anchor="w",
+            padx=12,
+        ).pack(fill=tk.BOTH, expand=True)
+        body = tk.Frame(outer, bg=PANEL_BG)
+        body.pack(fill=tk.BOTH, expand=True, padx=1, pady=(0, 1))
+        outer.body = body  # type: ignore[attr-defined]
+        return outer
+
+    def _build_input_panel(self, parent: tk.Frame) -> None:
+        canvas = tk.Canvas(parent, highlightthickness=0, bg=PANEL_BG)
+        scrollbar = ttk.Scrollbar(parent, orient=tk.VERTICAL, command=canvas.yview, style="Panel.Vertical.TScrollbar")
+        content = ttk.Frame(canvas, padding=10)
 
         content.bind(
             "<Configure>",
@@ -203,19 +268,21 @@ class App:
         field_map = {key: (label, unit) for key, label, unit in INPUT_FIELDS}
         row = 0
         for title, keys in INPUT_GROUPS:
-            section = ttk.Labelframe(content, text=title, padding=8, style="Section.TLabelframe")
+            section = ttk.LabelFrame(content, text=title, padding=10)
             section.grid(row=row, column=0, sticky="ew", pady=(0, 10))
             section.columnconfigure(1, weight=1)
             for idx, key in enumerate(keys):
                 label, unit = field_map[key]
-                ttk.Label(section, text=label).grid(row=idx, column=0, sticky="w", pady=4, padx=(0, 8))
-                entry = ttk.Entry(section)
-                entry.grid(row=idx, column=1, sticky="ew", pady=4)
-                ttk.Label(section, text=unit, width=8).grid(row=idx, column=2, sticky="w", padx=(8, 0))
+                ttk.Label(section, text=label).grid(row=idx, column=0, sticky="w", pady=5, padx=(0, 8))
+                entry = ttk.Entry(section, font=("Consolas", 10))
+                entry.grid(row=idx, column=1, sticky="ew", pady=5)
+                ttk.Label(section, text=unit, width=8, foreground=TEXT_MUTED).grid(
+                    row=idx, column=2, sticky="w", padx=(8, 0)
+                )
                 self.entries[key] = entry
             row += 1
 
-    def _build_result_panel(self, parent: ttk.Labelframe) -> None:
+    def _build_result_panel(self, parent: tk.Frame) -> None:
         columns = ("name", "value", "unit")
         tree = ttk.Treeview(parent, columns=columns, show="headings", style="Result.Treeview")
         tree.heading("name", text="项目")
@@ -225,20 +292,46 @@ class App:
         tree.column("value", width=120, anchor="e")
         tree.column("unit", width=80, anchor="center")
 
-        scrollbar = ttk.Scrollbar(parent, orient=tk.VERTICAL, command=tree.yview)
+        tree.tag_configure("odd", background="#ffffff")
+        tree.tag_configure("even", background="#f4f8fb")
+
+        scrollbar = ttk.Scrollbar(parent, orient=tk.VERTICAL, command=tree.yview, style="Panel.Vertical.TScrollbar")
         tree.configure(yscrollcommand=scrollbar.set)
 
-        tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(8, 0), pady=8)
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y, pady=8, padx=(0, 8))
+        tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(10, 0), pady=10)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y, pady=10, padx=(0, 10))
 
         self.result_tree = tree
 
-    def _build_steps_panel(self, parent: ttk.Labelframe) -> None:
-        text = tk.Text(parent, wrap="word", font=("Consolas", 10), padx=10, pady=10)
-        scrollbar = ttk.Scrollbar(parent, orient=tk.VERTICAL, command=text.yview)
+    def _build_steps_panel(self, parent: tk.Frame) -> None:
+        note = tk.Label(
+            parent,
+            text="按“公式 / 参数代入 / 结果”显示，便于校核与生成计算书",
+            bg=PANEL_BG,
+            fg=TEXT_MUTED,
+            font=("Microsoft YaHei UI", 9),
+            anchor="w",
+            padx=10,
+            pady=10,
+        )
+        note.pack(fill=tk.X)
+
+        text = tk.Text(
+            parent,
+            wrap="word",
+            font=("Consolas", 10),
+            padx=12,
+            pady=12,
+            bg="#fbfcfe",
+            fg="#1f2933",
+            insertbackground=TITLE_BG,
+            relief="flat",
+            borderwidth=0,
+        )
+        scrollbar = ttk.Scrollbar(parent, orient=tk.VERTICAL, command=text.yview, style="Panel.Vertical.TScrollbar")
         text.configure(yscrollcommand=scrollbar.set)
-        text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(8, 0), pady=8)
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y, pady=8, padx=(0, 8))
+        text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(10, 0), pady=(0, 10))
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y, pady=(0, 10), padx=(0, 10))
         self.steps_text = text
 
     def _read_inputs(self) -> dict[str, float]:
@@ -288,8 +381,9 @@ class App:
             return
         for item in self.result_tree.get_children():
             self.result_tree.delete(item)
-        for key, label, unit in OUTPUT_FIELDS:
-            self.result_tree.insert("", tk.END, values=(label, f"{results[key]:.3f}", unit))
+        for index, (key, label, unit) in enumerate(OUTPUT_FIELDS):
+            tag = "even" if index % 2 == 0 else "odd"
+            self.result_tree.insert("", tk.END, values=(label, f"{results[key]:.3f}", unit), tags=(tag,))
 
     def _refresh_steps(self, steps: list[dict[str, str]]) -> None:
         if not self.steps_text:
