@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 import subprocess
 import sys
 from datetime import datetime
@@ -109,6 +110,9 @@ OUTPUT_FIELDS = [
 class App:
     def __init__(self) -> None:
         self.entries: dict[str, tk.Entry] = {}
+        self.history: list[dict[str, object]] = []
+        self.history_window: tk.Toplevel | None = None
+        self.history_listbox: tk.Listbox | None = None
         self.last_report: dict[str, object] | None = None
         self.result_tree: ttk.Treeview | None = None
         self.steps_text: tk.Text | None = None
@@ -164,7 +168,7 @@ class App:
         menu = tk.Menu(self.root)
 
         file_menu = tk.Menu(menu, tearoff=0)
-        file_menu.add_command(label="导出 Word 计算书", command=self.export_word)
+        file_menu.add_command(label="历史计算结果", command=self.open_history_window_dialog)
         file_menu.add_command(label="退出", command=self.root.quit)
         menu.add_cascade(label="文件", menu=file_menu)
 
@@ -348,6 +352,7 @@ class App:
             data = self._read_inputs()
             report = calculate_report(data)
             self.last_report = report
+            self._add_history(report)
             self._refresh_results(report["results"])  # type: ignore[arg-type]
             self._refresh_steps(report["steps"])  # type: ignore[arg-type]
             self.status_var.set(
@@ -375,6 +380,148 @@ class App:
             if entry:
                 entry.insert(0, value)
         self.status_var.set("已恢复默认值，可直接录入参数。")
+
+    def _add_history(self, report: dict[str, object]) -> None:
+        record = {
+            "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "report": deepcopy(report),
+        }
+        self.history.append(record)
+        if len(self.history) > 100:
+            self.history.pop(0)
+        self._refresh_history_list()
+
+    def open_history_window_dialog(self) -> None:
+        if not self.history:
+            messagebox.showinfo("提示", "当前还没有历史计算结果，请先完成一次计算。")
+            return
+
+        if self.history_window and self.history_window.winfo_exists():
+            self.history_window.deiconify()
+            self.history_window.lift()
+            self._refresh_history_list()
+            return
+
+        window = tk.Toplevel(self.root)
+        window.title("历史计算结果")
+        window.geometry("760x420")
+        window.configure(bg=PRIMARY_BG)
+        window.transient(self.root)
+
+        title = tk.Label(
+            window,
+            text="历史计算结果",
+            bg=TITLE_BG,
+            fg=TITLE_FG,
+            font=("Microsoft YaHei UI", 12, "bold"),
+            anchor="w",
+            padx=12,
+            pady=10,
+        )
+        title.pack(fill=tk.X)
+
+        body = tk.Frame(window, bg=PANEL_BG, bd=1, highlightthickness=1, highlightbackground=BORDER_COLOR)
+        body.pack(fill=tk.BOTH, expand=True, padx=12, pady=12)
+
+        note = tk.Label(
+            body,
+            text="点击某条历史记录后，主界面会自动显示对应的输入参数、计算结果和计算步骤。",
+            bg=PANEL_BG,
+            fg=TEXT_MUTED,
+            font=("Microsoft YaHei UI", 9),
+            anchor="w",
+            padx=10,
+            pady=10,
+        )
+        note.pack(fill=tk.X)
+
+        list_frame = tk.Frame(body, bg=PANEL_BG)
+        list_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0, 10))
+
+        history_listbox = tk.Listbox(list_frame, font=("Consolas", 10), activestyle="none")
+        scrollbar = ttk.Scrollbar(list_frame, orient=tk.VERTICAL, command=history_listbox.yview, style="Panel.Vertical.TScrollbar")
+        history_listbox.configure(yscrollcommand=scrollbar.set)
+        history_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        action_bar = tk.Frame(body, bg=PANEL_BG)
+        action_bar.pack(fill=tk.X, padx=10, pady=(0, 10))
+        ttk.Button(action_bar, text="加载选中记录", command=self._load_selected_history, style="Toolbar.TButton").pack(
+            side=tk.LEFT
+        )
+        ttk.Button(action_bar, text="关闭", command=window.destroy, style="Toolbar.TButton").pack(side=tk.RIGHT)
+
+        history_listbox.bind("<Double-Button-1>", self._on_history_activate)
+        history_listbox.bind("<<ListboxSelect>>", self._on_history_select)
+
+        self.history_window = window
+        self.history_listbox = history_listbox
+        window.protocol("WM_DELETE_WINDOW", self._close_history_window)
+        self._refresh_history_list(select_last=True)
+
+    def _close_history_window(self) -> None:
+        if self.history_window and self.history_window.winfo_exists():
+            self.history_window.destroy()
+        self.history_window = None
+        self.history_listbox = None
+
+    def _refresh_history_list(self, *, select_last: bool = False) -> None:
+        if not self.history_listbox or not self.history_listbox.winfo_exists():
+            return
+        self.history_listbox.delete(0, tk.END)
+        for index, item in enumerate(self.history, start=1):
+            report = item["report"]
+            summary = ""
+            if isinstance(report, dict):
+                summary = str(report.get("summary", ""))
+            self.history_listbox.insert(tk.END, f"{index:02d}. {item['time']} | {summary}")
+        if select_last and self.history:
+            last = len(self.history) - 1
+            self.history_listbox.selection_clear(0, tk.END)
+            self.history_listbox.selection_set(last)
+            self.history_listbox.see(last)
+
+    def _on_history_select(self, _event: object) -> None:
+        self._load_selected_history()
+
+    def _on_history_activate(self, _event: object) -> None:
+        self._load_selected_history()
+
+    def _load_selected_history(self) -> None:
+        if not self.history_listbox or not self.history_listbox.winfo_exists():
+            return
+        selection = self.history_listbox.curselection()
+        if not selection:
+            return
+        index = int(selection[0])
+        if index < 0 or index >= len(self.history):
+            return
+        report = self.history[index]["report"]
+        if not isinstance(report, dict):
+            return
+        self._load_report(report)
+
+    def _load_report(self, report: dict[str, object]) -> None:
+        self.last_report = deepcopy(report)
+        inputs = report.get("inputs")
+        results = report.get("results")
+        steps = report.get("steps")
+
+        if isinstance(inputs, dict):
+            for key, value in inputs.items():
+                entry = self.entries.get(str(key))
+                if not entry:
+                    continue
+                entry.delete(0, tk.END)
+                entry.insert(0, str(value))
+
+        if isinstance(results, dict):
+            self._refresh_results(results)  # type: ignore[arg-type]
+        if isinstance(steps, list):
+            self._refresh_steps(steps)  # type: ignore[arg-type]
+
+        summary = str(report.get("summary", ""))
+        self.status_var.set(f"已加载历史计算结果：{summary}")
 
     def _refresh_results(self, results: dict[str, float]) -> None:
         if not self.result_tree:
