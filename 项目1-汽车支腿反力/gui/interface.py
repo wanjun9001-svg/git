@@ -79,13 +79,18 @@ INPUT_FIELDS = [
     ("b", "路基箱宽 b", "m"),
 ]
 
+MODEL_FIELD = ("crane_model", "汽车吊型号", "t")
+ALL_INPUT_FIELDS = [MODEL_FIELD, *INPUT_FIELDS]
+
 INPUT_GROUPS = [
+    ("基本信息", ["crane_model"]),
     ("荷载参数", ["G0", "G1", "G2", "G3", "g"]),
     ("布置参数", ["E", "L1", "A", "B", "C", "D"]),
     ("基础参数", ["a", "b"]),
 ]
 
 DEFAULT_INPUTS = {
+    "crane_model": "80",
     "g": "9.81",
 }
 
@@ -269,7 +274,7 @@ class App:
             lambda event: canvas.itemconfigure(window, width=event.width),
         )
 
-        field_map = {key: (label, unit) for key, label, unit in INPUT_FIELDS}
+        field_map = {key: (label, unit) for key, label, unit in ALL_INPUT_FIELDS}
         row = 0
         for title, keys in INPUT_GROUPS:
             section = ttk.LabelFrame(content, text=title, padding=10)
@@ -338,19 +343,24 @@ class App:
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y, pady=(0, 10), padx=(0, 10))
         self.steps_text = text
 
-    def _read_inputs(self) -> dict[str, float]:
+    def _read_inputs(self) -> tuple[str, dict[str, float]]:
+        model = self.entries["crane_model"].get().strip()
+        if model == "":
+            raise ValueError("请输入汽车吊型号")
+
         data: dict[str, float] = {}
         for k, _, _ in INPUT_FIELDS:
             v = self.entries[k].get().strip()
             if v == "":
                 raise ValueError(f"请输入 {k}")
             data[k] = float(v)
-        return data
+        return model, data
 
     def calculate(self) -> None:
         try:
-            data = self._read_inputs()
+            model, data = self._read_inputs()
             report = calculate_report(data)
+            report["inputs"] = {"crane_model": model, **report["inputs"]}  # type: ignore[index]
             self.last_report = report
             self._add_history(report)
             self._refresh_results(report["results"])  # type: ignore[arg-type]
@@ -473,7 +483,7 @@ class App:
             report = item["report"]
             summary = ""
             if isinstance(report, dict):
-                summary = str(report.get("summary", ""))
+                summary = self._format_history_item(report)
             self.history_listbox.insert(tk.END, f"{index:02d}. {item['time']} | {summary}")
         if select_last and self.history:
             last = len(self.history) - 1
@@ -522,6 +532,36 @@ class App:
 
         summary = str(report.get("summary", ""))
         self.status_var.set(f"已加载历史计算结果：{summary}")
+
+    def _format_history_item(self, report: dict[str, object]) -> str:
+        inputs = report.get("inputs")
+        results = report.get("results")
+        if not isinstance(inputs, dict) or not isinstance(results, dict):
+            return str(report.get("summary", ""))
+
+        model = str(inputs.get("crane_model", ""))
+        g1 = inputs.get("G1", "")
+        n_max = results.get("N_max", "")
+        pressure = results.get("P", "")
+
+        try:
+            g1_text = f"{float(g1):.3f} t"
+        except (TypeError, ValueError):
+            g1_text = str(g1)
+        try:
+            n_max_text = f"{float(n_max):.3f} kN"
+        except (TypeError, ValueError):
+            n_max_text = str(n_max)
+        try:
+            pressure_text = f"{float(pressure):.3f} kPa"
+        except (TypeError, ValueError):
+            pressure_text = str(pressure)
+
+        model_text = f"{model} t" if model else ""
+        return (
+            f"型号：{model_text} | 起吊构件重量：{g1_text} | "
+            f"最大支腿反力：{n_max_text} | 最大地面压强：{pressure_text}"
+        )
 
     def _refresh_results(self, results: dict[str, float]) -> None:
         if not self.result_tree:
@@ -626,6 +666,9 @@ class App:
         body.append(self._docx_paragraph(""))
 
         body.append(self._docx_paragraph("一、输入参数", bold=True, size=26))
+        crane_model = str(inputs.get("crane_model", ""))  # type: ignore[union-attr]
+        if crane_model:
+            body.append(self._docx_paragraph(f"汽车吊型号 = {crane_model} t"))
         for key, label, unit in INPUT_FIELDS:
             value = inputs[key]  # type: ignore[index]
             body.append(self._docx_paragraph(f"{label} = {value:.3f} {unit}"))
