@@ -121,6 +121,15 @@ class App:
         self.last_report: dict[str, object] | None = None
         self.result_tree: ttk.Treeview | None = None
         self.steps_text: tk.Text | None = None
+        self.diagram_photo: tk.PhotoImage | None = None
+        self.diagram_label: tk.Label | None = None
+        self.diagram_container: tk.Frame | None = None
+        self.diagram_viewer: tk.Toplevel | None = None
+        self.diagram_viewer_canvas: tk.Canvas | None = None
+        self.diagram_viewer_base: tk.PhotoImage | None = None
+        self.diagram_viewer_photo: tk.PhotoImage | None = None
+        self.diagram_viewer_image_id: int | None = None
+        self.diagram_viewer_scale: tuple[int, int] = (1, 1)
 
         self.root = tk.Tk()
         self.root.title("汽车吊支腿反力自动生成计算书")
@@ -325,6 +334,46 @@ class App:
         )
         note.pack(fill=tk.X)
 
+        diagram_frame = tk.Frame(parent, bg=PANEL_BG)
+        diagram_frame.pack(fill=tk.X, padx=10, pady=(0, 8))
+        tk.Label(
+            diagram_frame,
+            text="计算简图",
+            bg=PANEL_BG,
+            fg=TITLE_BG,
+            font=("Microsoft YaHei UI", 10, "bold"),
+            anchor="w",
+            pady=4,
+        ).pack(fill=tk.X)
+        diagram_label = tk.Label(
+            diagram_frame,
+            text="正在加载计算简图...",
+            bg="#fbfcfe",
+            fg=TEXT_MUTED,
+            relief="solid",
+            bd=1,
+            anchor="center",
+            padx=8,
+            pady=8,
+        )
+        diagram_label.configure(cursor="hand2")
+        diagram_label.bind("<Button-1>", self._open_diagram_viewer)
+        diagram_label.pack(fill=tk.X)
+        tk.Label(
+            diagram_frame,
+            text="单击简图可放大查看",
+            bg=PANEL_BG,
+            fg=TEXT_MUTED,
+            font=("Microsoft YaHei UI", 9),
+            anchor="w",
+            pady=2,
+        ).pack(fill=tk.X)
+        diagram_frame.bind("<Configure>", self._on_diagram_container_resize)
+        self.diagram_container = diagram_frame
+        self.diagram_label = diagram_label
+        self._refresh_diagram()
+        parent.after(100, self._refresh_diagram)
+
         text = tk.Text(
             parent,
             wrap="word",
@@ -342,6 +391,243 @@ class App:
         text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(10, 0), pady=(0, 10))
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y, pady=(0, 10), padx=(0, 10))
         self.steps_text = text
+
+    def _refresh_diagram(self) -> None:
+        if not self.diagram_label:
+            return
+
+        image_path = self._ensure_diagram_png()
+        if not image_path or not image_path.exists():
+            self.diagram_label.configure(text="未找到 Excel 中的计算简图。", image="", height=6)
+            self.diagram_photo = None
+            return
+
+        try:
+            photo = tk.PhotoImage(file=str(image_path))
+        except tk.TclError:
+            self.diagram_label.configure(text="计算简图加载失败。", image="", height=6)
+            self.diagram_photo = None
+            return
+
+        width = photo.width()
+        height = photo.height()
+        container_width = 430
+        if self.diagram_container and self.diagram_container.winfo_width() > 40:
+            container_width = max(280, self.diagram_container.winfo_width() - 20)
+        max_width = container_width
+        max_height = 260
+        scale_x = max(1, (width + max_width - 1) // max_width)
+        scale_y = max(1, (height + max_height - 1) // max_height)
+        scale = max(scale_x, scale_y)
+        if scale > 1:
+            photo = photo.subsample(scale, scale)
+
+        self.diagram_photo = photo
+        self.diagram_label.configure(image=self.diagram_photo, text="", height=photo.height())
+
+    def _on_diagram_container_resize(self, _event: object) -> None:
+        if self.diagram_label:
+            self.diagram_label.after_idle(self._refresh_diagram)
+
+    def _open_diagram_viewer(self, _event: object | None = None) -> None:
+        image_path = self._ensure_diagram_png()
+        if not image_path or not image_path.exists():
+            messagebox.showinfo("提示", "未找到 Excel 中的计算简图。")
+            return
+
+        if self.diagram_viewer and self.diagram_viewer.winfo_exists():
+            self.diagram_viewer.deiconify()
+            self.diagram_viewer.lift()
+            self.diagram_viewer_scale = (1, 1)
+            self._load_diagram_viewer_image(fit=False)
+            return
+
+        window = tk.Toplevel(self.root)
+        window.title("计算简图（放大查看）")
+        window.geometry("980x720")
+        window.configure(bg=PRIMARY_BG)
+        window.transient(self.root)
+        self.diagram_viewer = window
+
+        header = tk.Frame(window, bg=TITLE_BG)
+        header.pack(fill=tk.X)
+        tk.Label(
+            header,
+            text="计算简图（放大查看）",
+            bg=TITLE_BG,
+            fg=TITLE_FG,
+            font=("Microsoft YaHei UI", 12, "bold"),
+            anchor="w",
+            padx=12,
+            pady=10,
+        ).pack(side=tk.LEFT)
+
+        toolbar = tk.Frame(window, bg=PRIMARY_BG)
+        toolbar.pack(fill=tk.X, padx=12, pady=10)
+        ttk.Button(toolbar, text="缩小", command=lambda: self._set_diagram_viewer_scale("out")).pack(side=tk.LEFT)
+        ttk.Button(toolbar, text="放大", command=lambda: self._set_diagram_viewer_scale("in")).pack(side=tk.LEFT, padx=(8, 0))
+        ttk.Button(toolbar, text="100%", command=lambda: self._set_diagram_viewer_scale((1, 1))).pack(side=tk.LEFT, padx=(8, 0))
+        ttk.Button(toolbar, text="适应窗口", command=lambda: self._load_diagram_viewer_image(fit=True)).pack(side=tk.LEFT, padx=(8, 0))
+
+        body = tk.Frame(window, bg=PANEL_BG, bd=1, highlightthickness=1, highlightbackground=BORDER_COLOR)
+        body.pack(fill=tk.BOTH, expand=True, padx=12, pady=(0, 12))
+
+        canvas = tk.Canvas(body, bg="#ffffff", highlightthickness=0)
+        vsb = ttk.Scrollbar(body, orient=tk.VERTICAL, command=canvas.yview, style="Panel.Vertical.TScrollbar")
+        hsb = ttk.Scrollbar(body, orient=tk.HORIZONTAL, command=canvas.xview, style="Panel.Horizontal.TScrollbar")
+        canvas.configure(yscrollcommand=vsb.set, xscrollcommand=hsb.set)
+
+        canvas.grid(row=0, column=0, sticky="nsew")
+        vsb.grid(row=0, column=1, sticky="ns")
+        hsb.grid(row=1, column=0, sticky="ew")
+        body.rowconfigure(0, weight=1)
+        body.columnconfigure(0, weight=1)
+
+        self.diagram_viewer_canvas = canvas
+        self.diagram_viewer_scale = (1, 1)
+        self._load_diagram_viewer_image(fit=False)
+
+    def _set_diagram_viewer_scale(self, action: str | tuple[int, int]) -> None:
+        scales = [(1, 4), (1, 2), (3, 4), (1, 1), (3, 2), (2, 1), (3, 1)]
+        if isinstance(action, tuple):
+            self.diagram_viewer_scale = action
+            self._load_diagram_viewer_image()
+            return
+
+        try:
+            idx = scales.index(self.diagram_viewer_scale)
+        except ValueError:
+            idx = 3
+
+        if action == "in":
+            idx = min(len(scales) - 1, idx + 1)
+        else:
+            idx = max(0, idx - 1)
+        self.diagram_viewer_scale = scales[idx]
+        self._load_diagram_viewer_image()
+
+    def _load_diagram_viewer_image(self, fit: bool = False) -> None:
+        if not self.diagram_viewer_canvas:
+            return
+
+        image_path = self._ensure_diagram_png()
+        if not image_path or not image_path.exists():
+            return
+
+        try:
+            base = tk.PhotoImage(file=str(image_path))
+        except tk.TclError:
+            return
+
+        self.diagram_viewer_base = base
+
+        if fit:
+            canvas_w = max(1, self.diagram_viewer_canvas.winfo_width())
+            canvas_h = max(1, self.diagram_viewer_canvas.winfo_height())
+            target_w = max(1, canvas_w - 30)
+            target_h = max(1, canvas_h - 30)
+            scale_w = base.width() / target_w
+            scale_h = base.height() / target_h
+            scale = max(scale_w, scale_h, 1.0)
+            den = int(scale) if scale >= 1 else 1
+            self.diagram_viewer_scale = (1, max(1, den))
+
+        num, den = self.diagram_viewer_scale
+        photo = base
+        if num > 1:
+            photo = photo.zoom(num, num)
+        if den > 1:
+            photo = photo.subsample(den, den)
+
+        self.diagram_viewer_photo = photo
+        if self.diagram_viewer_image_id is None:
+            self.diagram_viewer_image_id = self.diagram_viewer_canvas.create_image(0, 0, anchor="nw", image=self.diagram_viewer_photo)
+        else:
+            self.diagram_viewer_canvas.itemconfigure(self.diagram_viewer_image_id, image=self.diagram_viewer_photo)
+        self.diagram_viewer_canvas.configure(scrollregion=(0, 0, photo.width(), photo.height()))
+
+    def _ensure_diagram_png(self) -> Path | None:
+        data_dir = _project_root() / "data"
+        user_diagram_candidates = [
+            data_dir / "计算简图.png",
+            data_dir / "计算简图.PNG",
+            data_dir / "diagram.png",
+            data_dir / "DIAGRAM.PNG",
+        ]
+        for candidate in user_diagram_candidates:
+            if candidate.exists():
+                return candidate
+
+        workbook = data_dir / "支腿反力验算.XLSX"
+        emf_path = data_dir / "_diagram_cache_8x.emf"
+        png_path = data_dir / "_diagram_cache_8x.png"
+        old_files = [
+            data_dir / "_diagram_cache.emf",
+            data_dir / "_diagram_cache.png",
+            data_dir / "_diagram_cache_3x.emf",
+            data_dir / "_diagram_cache_3x.png",
+        ]
+
+        if not workbook.exists():
+            return None
+
+        needs_refresh = True
+        if png_path.exists() and png_path.stat().st_mtime >= workbook.stat().st_mtime:
+            needs_refresh = False
+
+        if not needs_refresh:
+            return png_path
+
+        try:
+            with ZipFile(workbook) as archive:
+                media_files = [name for name in archive.namelist() if name.startswith("xl/media/")]
+                emf_files = [name for name in media_files if name.lower().endswith(".emf")]
+                target_name = emf_files[0] if emf_files else ""
+                if not target_name:
+                    return None
+                emf_path.write_bytes(archive.read(target_name))
+        except Exception:
+            return None
+
+        command = (
+            "Add-Type -AssemblyName System.Drawing; "
+            f"$src='{emf_path}'; "
+            f"$dst='{png_path}'; "
+            "$img=[System.Drawing.Image]::FromFile($src); "
+            "$scale=8; "
+            "$w=[int]($img.Width*$scale); "
+            "$h=[int]($img.Height*$scale); "
+            "$bmp=New-Object System.Drawing.Bitmap $w,$h; "
+            "$g=[System.Drawing.Graphics]::FromImage($bmp); "
+            "$g.SmoothingMode=[System.Drawing.Drawing2D.SmoothingMode]::HighQuality; "
+            "$g.InterpolationMode=[System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic; "
+            "$g.PixelOffsetMode=[System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality; "
+            "$g.CompositingQuality=[System.Drawing.Drawing2D.CompositingQuality]::HighQuality; "
+            "$g.TextRenderingHint=[System.Drawing.Text.TextRenderingHint]::ClearTypeGridFit; "
+            "$g.Clear([System.Drawing.Color]::White); "
+            "$g.DrawImage($img,0,0,$w,$h); "
+            "$bmp.Save($dst,[System.Drawing.Imaging.ImageFormat]::Png); "
+            "$g.Dispose(); $bmp.Dispose(); $img.Dispose();"
+        )
+        try:
+            subprocess.run(
+                ["powershell", "-NoProfile", "-Command", command],
+                check=True,
+                cwd=str(_project_root()),
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        except Exception:
+            return None
+
+        try:
+            for path in old_files:
+                if path.exists():
+                    path.unlink()
+        except Exception:
+            pass
+
+        return png_path if png_path.exists() else None
 
     def _read_inputs(self) -> tuple[str, dict[str, float]]:
         model = self.entries["crane_model"].get().strip()
