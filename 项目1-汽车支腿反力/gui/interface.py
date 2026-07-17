@@ -986,22 +986,23 @@ class App:
                 center=True,
                 color="1F4D78",
                 style="Title",
+                indent=False,
             )
         )
-        body.append(self._docx_paragraph(f"生成时间：{now}", size=21, center=True))
+        body.append(self._docx_paragraph(f"生成时间：{now}", size=21, center=True, indent=False))
         body.append(self._docx_paragraph(""))
 
         crane_model = str(inputs.get("crane_model", ""))  # type: ignore[union-attr]
         model_text = f"{crane_model}吨汽车吊" if crane_model else "汽车吊"
-        body.append(self._docx_paragraph("1. 汽车吊支腿反力计算", bold=True, size=28, style="Heading1"))
-        body.append(self._docx_paragraph("1.1 计算目的", bold=True, size=24, style="Heading2"))
+        body.append(self._docx_paragraph("1. 汽车吊支腿反力计算", bold=True, size=28, style="Heading1", indent=False))
+        body.append(self._docx_paragraph("1.1 计算目的", bold=True, size=24, style="Heading2", indent=False))
         body.append(
             self._docx_paragraph(
                 f"为校核{model_text}吊装作业时各支腿反力及地面最大压强，判断路基箱及地基承载条件是否满足吊装要求。"
             )
         )
 
-        body.append(self._docx_paragraph("1.2 计算参数", bold=True, size=24, style="Heading2"))
+        body.append(self._docx_paragraph("1.2 计算参数", bold=True, size=24, style="Heading2", indent=False))
         param_rows = [["参数", "符号", "数值", "单位"]]
         if crane_model:
             param_rows.append(["汽车吊型号", "Model", crane_model, "t"])
@@ -1011,7 +1012,7 @@ class App:
         body.append(self._docx_table(param_rows, [4536, 1224, 1656, 1584], header_rows=1))
 
         body.append(self._docx_paragraph(""))
-        body.append(self._docx_paragraph("1.3 计算公式及简图", bold=True, size=24, style="Heading2"))
+        body.append(self._docx_paragraph("1.3 计算公式及简图", bold=True, size=24, style="Heading2", indent=False))
         formula_lines = [
             "总竖向力 F = (G0 + G1 + G2 + G3) × g",
             "总弯矩 M = (G1 × L1 - G2 × C + G3 × E) × g",
@@ -1027,11 +1028,11 @@ class App:
         for line in formula_lines:
             body.append(self._docx_paragraph(line))
         if has_image:
-            body.append(self._docx_paragraph("计算简图", bold=True, size=22))
+            body.append(self._docx_paragraph("计算简图", bold=True, size=22, indent=False))
             body.append(self._docx_image_paragraph("rId1"))
-            body.append(self._docx_paragraph("支腿反力验算计算简图", center=True, size=19))
+            body.append(self._docx_paragraph("支腿反力验算计算简图", center=True, size=19, indent=False))
 
-        body.append(self._docx_paragraph("1.4 计算结果", bold=True, size=24, style="Heading2"))
+        body.append(self._docx_paragraph("1.4 计算结果", bold=True, size=24, style="Heading2", indent=False))
         result_rows = [["项目", "符号", "数值", "单位"]]
         for key, label, unit in OUTPUT_FIELDS:
             value = results[key]  # type: ignore[index]
@@ -1039,7 +1040,7 @@ class App:
         body.append(self._docx_table(result_rows, [4536, 1224, 1656, 1584], header_rows=1))
 
         body.append(self._docx_paragraph(""))
-        body.append(self._docx_paragraph("1.5 结论", bold=True, size=24, style="Heading2"))
+        body.append(self._docx_paragraph("1.5 结论", bold=True, size=24, style="Heading2", indent=False))
         n_max = float(results["N_max"])  # type: ignore[index]
         pressure = float(results["P"])  # type: ignore[index]
         body.append(
@@ -1084,15 +1085,21 @@ class App:
         center: bool = False,
         color: str | None = None,
         style: str | None = None,
+        indent: bool | None = None,
     ) -> str:
         escaped = escape(text)
         align = '<w:jc w:val="center"/>' if center else ""
         weight = "<w:b/>" if bold else ""
         color_xml = f'<w:color w:val="{color}"/>' if color else ""
         style_xml = f'<w:pStyle w:val="{style}"/>' if style else ""
+        use_indent = indent if indent is not None else (not center)
+        if text.strip():
+            indent_xml = '<w:ind w:firstLine="420"/>' if use_indent else '<w:ind w:firstLine="0"/>'
+        else:
+            indent_xml = ""
         return (
-            "<w:p><w:pPr><w:spacing w:before=\"60\" w:after=\"60\"/>"
-            f"{style_xml}{align}"
+            "<w:p><w:pPr><w:spacing w:before=\"60\" w:after=\"60\" w:line=\"360\" w:lineRule=\"auto\"/>"
+            f"{style_xml}{align}{indent_xml}"
             "</w:pPr><w:r><w:rPr>"
             f"{weight}{color_xml}<w:rFonts w:ascii=\"Calibri\" w:hAnsi=\"Calibri\" w:eastAsia=\"宋体\"/>"
             f"<w:sz w:val=\"{size}\"/><w:szCs w:val=\"{size}\"/>"
@@ -1114,13 +1121,18 @@ class App:
     </w:rPrDefault>
     <w:pPrDefault>
       <w:pPr>
-        <w:spacing w:before="60" w:after="60"/>
+        <w:spacing w:before="60" w:after="60" w:line="360" w:lineRule="auto"/>
+        <w:ind w:firstLine="420"/>
       </w:pPr>
     </w:pPrDefault>
   </w:docDefaults>
   <w:style w:type="paragraph" w:default="1" w:styleId="Normal">
     <w:name w:val="Normal"/>
     <w:qFormat/>
+    <w:pPr>
+      <w:spacing w:before="60" w:after="60" w:line="360" w:lineRule="auto"/>
+      <w:ind w:firstLine="420"/>
+    </w:pPr>
     <w:rPr>
       <w:rFonts w:ascii="Calibri" w:hAnsi="Calibri" w:eastAsia="宋体"/>
       <w:sz w:val="21"/>
@@ -1136,7 +1148,6 @@ class App:
     <w:pPr>
       <w:jc w:val="center"/>
       <w:spacing w:before="120" w:after="160"/>
-      <w:outlineLvl w:val="0"/>
     </w:pPr>
     <w:rPr>
       <w:b/>
@@ -1192,8 +1203,7 @@ class App:
                 width = widths[min(col_index, len(widths) - 1)]
                 is_header = row_index < header_rows
                 shading = '<w:shd w:val="clear" w:color="auto" w:fill="F2F4F7"/>' if is_header else ""
-                align = "center" if is_header or col_index > 0 else "left"
-                paragraph = self._docx_paragraph(value, bold=is_header, center=align == "center", size=21)
+                paragraph = self._docx_paragraph(value, bold=is_header, center=True, size=21, indent=False)
                 cells.append(
                     "<w:tc><w:tcPr>"
                     f'<w:tcW w:w="{width}" w:type="dxa"/>'
