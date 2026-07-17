@@ -67,13 +67,13 @@ TEXT_MUTED = "#5b6b7a"
 INPUT_FIELDS = [
     ("G3", "汽车吊吊臂自重 G3", "t"),
     ("E", "吊臂重心至回转中心 E", "m"),
-    ("G0", "汽车吊自重 G0", "t"),
-    ("G1", "起吊构件重量 G1", "t"),
+    ("G0", "汽车吊自重（扣除吊臂重量） G0", "t"),
+    ("G1", "起吊构件最大重量 G1", "t"),
     ("G2", "配重 G2", "t"),
-    ("L1", "起吊半径 L1", "m"),
+    ("L1", "起吊作业半径 L1", "m"),
     ("A", "支腿纵距 A", "m"),
     ("B", "支腿横距 B", "m"),
-    ("C", "配重距离 C", "m"),
+    ("C", "配重至回转中心距离 C", "m"),
     ("g", "重力加速度 g", "m/s²"),
     ("D", "回转中心至后支腿距离 D", "m"),
     ("a", "路基箱长 a", "m"),
@@ -91,7 +91,17 @@ INPUT_GROUPS = [
 ]
 
 DEFAULT_INPUTS = {
-    "crane_model": "80",
+    "crane_model": "300",
+    "G3": "17.79",
+    "E": "9",
+    "G0": "52.45",
+    "G1": "18.6",
+    "G2": "76",
+    "L1": "20",
+    "A": "9.19",
+    "B": "8.3",
+    "C": "4.3",
+    "D": "4.15",
     "g": "9.81",
 }
 
@@ -968,7 +978,7 @@ class App:
         body.append(self._docx_paragraph(""))
 
         crane_model = str(inputs.get("crane_model", ""))  # type: ignore[union-attr]
-        model_text = f"{crane_model}吨" if crane_model else "汽车吊"
+        model_text = f"{crane_model}吨汽车吊" if crane_model else "汽车吊"
         body.append(self._docx_paragraph("1. 汽车吊支腿反力计算", bold=True, size=28))
         body.append(self._docx_paragraph("1.1 计算目的", bold=True, size=24))
         body.append(
