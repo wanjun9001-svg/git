@@ -5,6 +5,7 @@ import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
+import struct
 from xml.sax.saxutils import escape
 from zipfile import ZIP_DEFLATED, ZipFile
 
@@ -893,11 +894,14 @@ class App:
 
     def _write_docx(self, file_path: Path, report: dict[str, object]) -> None:
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        document_xml = self._build_document_xml(report, now)
+        image_path = self._ensure_diagram_png()
+        has_image = bool(image_path and image_path.exists())
+        document_xml = self._build_document_xml(report, now, has_image=has_image)
         content_types = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
   <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
   <Default Extension="xml" ContentType="application/xml"/>
+  <Default Extension="png" ContentType="image/png"/>
   <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
   <Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>
   <Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/>
@@ -929,9 +933,19 @@ class App:
   <Application>Microsoft Office Word</Application>
 </Properties>
 """
-        doc_rels = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"/>
+        doc_rels_body = []
+        if has_image:
+            doc_rels_body.append(
+                '  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/diagram.png"/>'
+            )
+        doc_rels = (
+            """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
 """
+            + "\n".join(doc_rels_body)
+            + ("\n" if doc_rels_body else "")
+            + "</Relationships>\n"
+        )
 
         with ZipFile(file_path, "w", compression=ZIP_DEFLATED) as docx:
             docx.writestr("[Content_Types].xml", content_types)
@@ -940,33 +954,68 @@ class App:
             docx.writestr("docProps/app.xml", app)
             docx.writestr("word/document.xml", document_xml)
             docx.writestr("word/_rels/document.xml.rels", doc_rels)
+            if has_image and image_path:
+                docx.writestr("word/media/diagram.png", image_path.read_bytes())
 
-    def _build_document_xml(self, report: dict[str, object], now: str) -> str:
+    def _build_document_xml(self, report: dict[str, object], now: str, *, has_image: bool) -> str:
         inputs = report["inputs"]  # type: ignore[assignment]
         results = report["results"]  # type: ignore[assignment]
         steps = report["steps"]  # type: ignore[assignment]
 
         body: list[str] = []
-        body.append(self._docx_paragraph("汽车吊支腿反力计算书", bold=True, size=32, center=True))
-        body.append(self._docx_paragraph(f"生成时间：{now}", size=20))
+        body.append(self._docx_paragraph("吊装相关验算计算书", bold=True, size=40, center=True, color="1F4D78"))
+        body.append(self._docx_paragraph(f"生成时间：{now}", size=21, center=True))
         body.append(self._docx_paragraph(""))
 
-        body.append(self._docx_paragraph("一、输入参数", bold=True, size=26))
         crane_model = str(inputs.get("crane_model", ""))  # type: ignore[union-attr]
+        model_text = f"{crane_model}吨" if crane_model else "汽车吊"
+        body.append(self._docx_paragraph("1. 汽车吊支腿反力计算", bold=True, size=28))
+        body.append(self._docx_paragraph("1.1 计算目的", bold=True, size=24))
+        body.append(
+            self._docx_paragraph(
+                f"为校核{model_text}吊装作业时各支腿反力及地面最大压强，判断路基箱及地基承载条件是否满足吊装要求。"
+            )
+        )
+
+        body.append(self._docx_paragraph("1.2 计算参数", bold=True, size=24))
+        param_rows = [["参数", "符号", "数值", "单位"]]
         if crane_model:
-            body.append(self._docx_paragraph(f"汽车吊型号 = {crane_model} t"))
+            param_rows.append(["汽车吊型号", "Model", crane_model, "t"])
         for key, label, unit in INPUT_FIELDS:
             value = inputs[key]  # type: ignore[index]
-            body.append(self._docx_paragraph(f"{label} = {value:.3f} {unit}"))
+            param_rows.append([label, key, f"{value:.3f}", unit])
+        body.append(self._docx_table(param_rows, [4536, 1224, 1656, 1584], header_rows=1))
 
         body.append(self._docx_paragraph(""))
-        body.append(self._docx_paragraph("二、计算结果", bold=True, size=26))
+        body.append(self._docx_paragraph("1.3 计算公式及简图", bold=True, size=24))
+        formula_lines = [
+            "总竖向力 F = (G0 + G1 + G2 + G3) × g",
+            "总弯矩 M = (G1 × L1 - G2 × C + G3 × E) × g",
+            "水平夹角 β = arctan(B / 2D)",
+            "X 轴弯矩 Mx = M × cosβ",
+            "Y 轴弯矩 My = M × sinβ",
+            "支腿 1 反力 N1 = D × F / 2A - Mx / 2A + My / 2B",
+            "支腿 2 反力 N2 = (A - D) × F / 2A + Mx / 2A + My / 2B",
+            "支腿 3 反力 N3 = D × F / 2A - Mx / 2A - My / 2B",
+            "支腿 4 反力 N4 = (A - D) × F / 2A + Mx / 2A - My / 2B",
+            "最大地面压强 P = Nmax / S",
+        ]
+        for line in formula_lines:
+            body.append(self._docx_paragraph(line))
+        if has_image:
+            body.append(self._docx_paragraph("计算简图", bold=True, size=22))
+            body.append(self._docx_image_paragraph("rId1"))
+            body.append(self._docx_paragraph("图 1 支腿反力验算计算简图", center=True, size=19))
+
+        body.append(self._docx_paragraph("1.4 计算结果", bold=True, size=24))
+        result_rows = [["项目", "符号", "数值", "单位"]]
         for key, label, unit in OUTPUT_FIELDS:
             value = results[key]  # type: ignore[index]
-            body.append(self._docx_paragraph(f"{label} = {value:.3f} {unit}"))
+            result_rows.append([label, key, f"{value:.3f}", unit])
+        body.append(self._docx_table(result_rows, [4536, 1224, 1656, 1584], header_rows=1))
 
         body.append(self._docx_paragraph(""))
-        body.append(self._docx_paragraph("三、计算步骤", bold=True, size=26))
+        body.append(self._docx_paragraph("1.5 计算步骤", bold=True, size=24))
         for step in steps:  # type: ignore[assignment]
             body.append(
                 self._docx_paragraph(f"{step['index']}. {step['title']}", bold=True, size=22)  # type: ignore[index]
@@ -975,6 +1024,17 @@ class App:
             body.append(self._docx_paragraph(f"参数代入：{step['substitution']}"))  # type: ignore[index]
             body.append(self._docx_paragraph(f"计算结果：{step['result']}"))  # type: ignore[index]
             body.append(self._docx_paragraph(""))
+
+        body.append(self._docx_paragraph("1.6 结论", bold=True, size=24))
+        n_max = float(results["N_max"])  # type: ignore[index]
+        pressure = float(results["P"])  # type: ignore[index]
+        body.append(
+            self._docx_paragraph(
+                f"经计算，本工况下汽车吊最大支腿反力为 {n_max:.3f} kN，对应最大地面压强为 {pressure:.3f} kPa。"
+                "后续应将该压强与现场地基承载力或铺设路基箱后的允许承载力进行比较；"
+                "若允许承载力大于该值，则支腿承载满足要求。"
+            )
+        )
 
         return (
             """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -986,6 +1046,8 @@ class App:
  xmlns:v="urn:schemas-microsoft-com:vml"
  xmlns:wp14="http://schemas.microsoft.com/office/word/2010/wordprocessingDrawing"
  xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"
+ xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
+ xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"
  xmlns:w10="urn:schemas-microsoft-com:office:word"
  xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"
  xmlns:w14="http://schemas.microsoft.com/office/word/2010/wordml"
@@ -999,19 +1061,104 @@ class App:
             + """<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" w:header="708" w:footer="708" w:gutter="0"/></w:sectPr></w:body></w:document>"""
         )
 
-    def _docx_paragraph(self, text: str, *, bold: bool = False, size: int = 21, center: bool = False) -> str:
+    def _docx_paragraph(
+        self,
+        text: str,
+        *,
+        bold: bool = False,
+        size: int = 21,
+        center: bool = False,
+        color: str | None = None,
+    ) -> str:
         escaped = escape(text)
         align = '<w:jc w:val="center"/>' if center else ""
         weight = "<w:b/>" if bold else ""
+        color_xml = f'<w:color w:val="{color}"/>' if color else ""
         return (
-            "<w:p><w:pPr>"
+            "<w:p><w:pPr><w:spacing w:before=\"60\" w:after=\"60\"/>"
             f"{align}"
             "</w:pPr><w:r><w:rPr>"
-            f"{weight}<w:sz w:val=\"{size}\"/><w:szCs w:val=\"{size}\"/>"
+            f"{weight}{color_xml}<w:rFonts w:ascii=\"Calibri\" w:hAnsi=\"Calibri\" w:eastAsia=\"宋体\"/>"
+            f"<w:sz w:val=\"{size}\"/><w:szCs w:val=\"{size}\"/>"
             "</w:rPr><w:t xml:space=\"preserve\">"
             f"{escaped}"
             "</w:t></w:r></w:p>"
         )
+
+    def _docx_table(self, rows: list[list[str]], widths: list[int], *, header_rows: int = 0) -> str:
+        grid = "".join(f'<w:gridCol w:w="{width}"/>' for width in widths)
+        row_xml: list[str] = []
+        for row_index, row in enumerate(rows):
+            cells: list[str] = []
+            for col_index, value in enumerate(row):
+                width = widths[min(col_index, len(widths) - 1)]
+                is_header = row_index < header_rows
+                shading = '<w:shd w:val="clear" w:color="auto" w:fill="F2F4F7"/>' if is_header else ""
+                align = "center" if is_header or col_index > 0 else "left"
+                paragraph = self._docx_paragraph(value, bold=is_header, center=align == "center", size=21)
+                cells.append(
+                    "<w:tc><w:tcPr>"
+                    f'<w:tcW w:w="{width}" w:type="dxa"/>'
+                    f"{shading}<w:vAlign w:val=\"center\"/></w:tcPr>"
+                    f"{paragraph}</w:tc>"
+                )
+            row_xml.append(f"<w:tr>{''.join(cells)}</w:tr>")
+
+        return (
+            "<w:tbl><w:tblPr>"
+            '<w:tblW w:w="0" w:type="auto"/>'
+            '<w:jc w:val="center"/>'
+            "<w:tblBorders>"
+            '<w:top w:val="single" w:sz="6" w:space="0" w:color="808080"/>'
+            '<w:left w:val="single" w:sz="6" w:space="0" w:color="808080"/>'
+            '<w:bottom w:val="single" w:sz="6" w:space="0" w:color="808080"/>'
+            '<w:right w:val="single" w:sz="6" w:space="0" w:color="808080"/>'
+            '<w:insideH w:val="single" w:sz="6" w:space="0" w:color="B8C2CC"/>'
+            '<w:insideV w:val="single" w:sz="6" w:space="0" w:color="B8C2CC"/>'
+            "</w:tblBorders>"
+            '<w:tblLayout w:type="fixed"/>'
+            '<w:tblCellMar><w:top w:w="80" w:type="dxa"/><w:left w:w="120" w:type="dxa"/><w:bottom w:w="80" w:type="dxa"/><w:right w:w="120" w:type="dxa"/></w:tblCellMar>'
+            "</w:tblPr>"
+            f"<w:tblGrid>{grid}</w:tblGrid>"
+            + "".join(row_xml)
+            + "</w:tbl>"
+        )
+
+    def _docx_image_paragraph(self, rel_id: str) -> str:
+        image_path = self._ensure_diagram_png()
+        width_px, height_px = self._get_png_size(image_path) if image_path else (800, 600)
+        max_width_emu = 5_600_000
+        width_emu = width_px * 9525
+        height_emu = height_px * 9525
+        if width_emu > max_width_emu:
+            height_emu = int(height_emu * max_width_emu / width_emu)
+            width_emu = max_width_emu
+        return (
+            '<w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:drawing>'
+            '<wp:inline distT="0" distB="0" distL="0" distR="0">'
+            f'<wp:extent cx="{width_emu}" cy="{height_emu}"/>'
+            '<wp:docPr id="1" name="计算简图"/>'
+            '<wp:cNvGraphicFramePr><a:graphicFrameLocks noChangeAspect="1"/></wp:cNvGraphicFramePr>'
+            '<a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">'
+            '<pic:pic>'
+            '<pic:nvPicPr><pic:cNvPr id="0" name="diagram.png"/><pic:cNvPicPr/></pic:nvPicPr>'
+            f'<pic:blipFill><a:blip r:embed="{rel_id}"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill>'
+            '<pic:spPr><a:xfrm><a:off x="0" y="0"/>'
+            f'<a:ext cx="{width_emu}" cy="{height_emu}"/></a:xfrm>'
+            '<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr>'
+            '</pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p>'
+        )
+
+    def _get_png_size(self, file_path: Path) -> tuple[int, int]:
+        try:
+            with file_path.open("rb") as handle:
+                header = handle.read(24)
+            if len(header) >= 24 and header[:8] == b"\x89PNG\r\n\x1a\n":
+                width, height = struct.unpack(">II", header[16:24])
+                return max(1, width), max(1, height)
+        except Exception:
+            pass
+        return (800, 600)
 
 
 def run() -> None:
