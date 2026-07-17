@@ -994,7 +994,7 @@ class App:
 
         crane_model = str(inputs.get("crane_model", ""))  # type: ignore[union-attr]
         model_text = f"{crane_model}吨汽车吊" if crane_model else "汽车吊"
-        body.append(self._docx_paragraph("1. 汽车吊支腿反力计算", bold=True, size=28, style="Heading1", indent=False))
+        body.append(self._docx_paragraph("1 汽车吊支腿反力计算", bold=True, size=28, style="Heading1", indent=False))
         body.append(self._docx_paragraph("1.1 计算目的", bold=True, size=24, style="Heading2", indent=False))
         body.append(
             self._docx_paragraph(
@@ -1081,7 +1081,7 @@ class App:
         text: str,
         *,
         bold: bool = False,
-        size: int = 21,
+        size: int = 24,
         center: bool = False,
         color: str | None = None,
         style: str | None = None,
@@ -1115,8 +1115,8 @@ class App:
     <w:rPrDefault>
       <w:rPr>
         <w:rFonts w:ascii="Calibri" w:hAnsi="Calibri" w:eastAsia="宋体"/>
-        <w:sz w:val="21"/>
-        <w:szCs w:val="21"/>
+        <w:sz w:val="24"/>
+        <w:szCs w:val="24"/>
       </w:rPr>
     </w:rPrDefault>
     <w:pPrDefault>
@@ -1135,8 +1135,8 @@ class App:
     </w:pPr>
     <w:rPr>
       <w:rFonts w:ascii="Calibri" w:hAnsi="Calibri" w:eastAsia="宋体"/>
-      <w:sz w:val="21"/>
-      <w:szCs w:val="21"/>
+      <w:sz w:val="24"/>
+      <w:szCs w:val="24"/>
     </w:rPr>
   </w:style>
   <w:style w:type="paragraph" w:styleId="Title">
@@ -1203,7 +1203,7 @@ class App:
                 width = widths[min(col_index, len(widths) - 1)]
                 is_header = row_index < header_rows
                 shading = '<w:shd w:val="clear" w:color="auto" w:fill="F2F4F7"/>' if is_header else ""
-                paragraph = self._docx_paragraph(value, bold=is_header, center=True, size=21, indent=False)
+                paragraph = self._docx_paragraph(value, bold=is_header, center=True, size=24, indent=False)
                 cells.append(
                     "<w:tc><w:tcPr>"
                     f'<w:tcW w:w="{width}" w:type="dxa"/>'
