@@ -175,6 +175,11 @@ def calculate_report(data: dict[str, float]) -> dict[str, object]:
         "results": results,
         "steps": steps,
         "summary": f"最大支腿反力 Nmax = {_fmt(n_max)} kN，最大地面压强 P = {_fmt(p)} kPa",
+        "conclusion": (
+            f"经计算，本工况下汽车吊最大支腿反力为 {_fmt(n_max)} kN，对应最大地面压强为 {_fmt(p)} kPa。"
+            "后续应将该压强与现场地基承载力或铺设路基箱后的允许承载力进行比较；"
+            "若允许承载力大于该值，则支腿承载满足要求。"
+        ),
     }
 
 

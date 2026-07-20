@@ -95,8 +95,8 @@ def calculate_report(data: dict[str, float]) -> dict[str, object]:
         "steps": steps,
         "summary": f"倾覆边合力矩 M = {_fmt(moment)} kN·m，{verdict}",
         "conclusion": (
-            f"经计算，本工况下汽车吊抗倾覆合力矩为 {_fmt(moment)} kN·m，判定结果为“{verdict}”。"
+            f"经计算，本工况下汽车吊抗倾覆合力矩为 {_fmt(moment)} kN·m，满足当前工况下的吊装要求。"
             if verdict == "满足要求"
-            else f"经计算，本工况下汽车吊抗倾覆合力矩为 {_fmt(moment)} kN·m，判定结果为“{verdict}”，需调整工况参数。"
+            else f"经计算，本工况下汽车吊抗倾覆合力矩为 {_fmt(moment)} kN·m，不满足当前工况下的吊装要求，需调整工况参数。"
         ),
     }
